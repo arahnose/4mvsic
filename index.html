@@ -2,7 +2,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Foro Musical 🎶</title>
+  <title>4muzic</title>
   <style>
     body {
       font-family: sans-serif;
@@ -40,55 +40,102 @@
       color: white;
       font-weight: bold;
       cursor: pointer;
-    }
-    .tools {
       margin-top: 0.5rem;
     }
-    .tools button {
-      margin-right: 0.5rem;
-      background: #333;
-    }
-    .reply {
-      margin-left: 1rem;
-      border-left: 2px solid #444;
-      padding-left: 0.5rem;
-    }
   </style>
+  <script>
+    const clientId = "c35c2ab1a3554728afd1cbdcfa7d9a9b"; 
+    const redirectUri = window.location.origin;
+    const scopes = ["user-read-currently-playing", "user-read-playback-state"];function loginWithSpotify() {
+  const authUrl = `https://accounts.spotify.com/authorize?client_id=${clientId}&response_type=token&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scopes.join(" "))}`;
+  window.location.href = authUrl;
+}
+
+function getAccessTokenFromUrl() {
+  const hash = window.location.hash;
+  if (hash.includes("access_token")) {
+    const params = new URLSearchParams(hash.substring(1));
+    const token = params.get("access_token");
+    localStorage.setItem("spotify_token", token);
+    window.location.hash = "";
+  }
+}
+
+function getCurrentPlayingTrack(token, callback) {
+  fetch("https://api.spotify.com/v1/me/player/currently-playing", {
+    headers: {
+      Authorization: "Bearer " + token
+    }
+  })
+    .then(res => {
+      if (res.status === 204 || res.status === 202) return null;
+      return res.json();
+    })
+    .then(data => {
+      callback(data);
+    })
+    .catch(err => console.error("Error al obtener canción actual:", err));
+}
+
+window.addEventListener("DOMContentLoaded", () => {
+  getAccessTokenFromUrl();
+  const token = localStorage.getItem("spotify_token");
+  if (token) {
+    getCurrentPlayingTrack(token, data => {
+      if (!data || !data.item) return;
+      const info = data.item;
+      const artist = info.artists.map(a => a.name).join(", ");
+      const track = info.name;
+      const image = info.album.images[0].url;
+
+      const nowPlayingDiv = document.getElementById("nowPlaying");
+      nowPlayingDiv.innerHTML = `
+        <div style="display:flex; align-items:center; gap:10px;">
+          <img src="${image}" height="64" />
+          <div>
+            <b>Escuchando:</b><br>
+            ${track} – ${artist}
+          </div>
+        </div>
+      `;
+    });
+  }
+});
+
+  </script>
 </head>
 <body>
-  <h1>🎧 Foro de Música</h1>  <div class="post-form">
-    <input type="text" id="username" placeholder="Tu nombre permanente" />
+  <div>
+    <button onclick="loginWithSpotify()">🔗 Vincular Spotify</button>
+    <div id="nowPlaying" style="margin-top: 1rem;"></div>
+  </div>
+  <h1>4muzic</h1>
+  <div class="post-form">
+    <input type="text" id="username" placeholder="Tu nombre (una vez)" />
     <textarea id="message" placeholder="Escribe tu mensaje y pega el enlace de Spotify..."></textarea>
     <button onclick="submitPost()">Publicar</button>
-  </div>  <div id="posts"></div>  <!-- Firebase -->  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>  <script src="./firebase-config.js"></script>  <script>
+  </div>
+  <div id="posts"></div>  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>  <script src="./firebase-config.js"></script>  <script>
     const db = firebase.database();
-
+    let currentUser = localStorage.getItem("username") || "";
     let moderators = [];
 
-    function loadModerators() {
-      db.ref("moderators").once("value", snapshot => {
-        const mods = snapshot.val();
-        if (mods) moderators = Object.keys(mods);
-        else moderators = ["Ara"];
-        renderPosts();
-      });
-    }
-
-    function saveModerator(name) {
-      db.ref("moderators/" + name).set(true);
-    }
-
     function extractTrackId(text) {
-      const match = text.match(/(?:track\/)\s*([a-zA-Z0-9]{22})/);
+      const match = text.match(/(?:track\/)([a-zA-Z0-9]{22})/);
       return match ? match[1] : null;
     }
 
     function submitPost() {
-      const username = document.getElementById("username").value.trim() || "Anónimo";
+      const usernameInput = document.getElementById("username");
+      const username = usernameInput.value.trim() || currentUser || "Anónimo";
       const message = document.getElementById("message").value.trim();
       const trackId = extractTrackId(message);
-      if (!message || !trackId) return alert("Escribe un mensaje válido con enlace de canción.");
-
+      if (!message || !trackId) return alert("Debes escribir un mensaje y pegar un enlace válido de Spotify.");
+      if (!currentUser) {
+        localStorage.setItem("username", username);
+        currentUser = username;
+        usernameInput.style.display = "none";
+      }
       db.ref("posts").push({
         user: username,
         message,
@@ -99,127 +146,114 @@
       document.getElementById("message").value = "";
     }
 
-    function renderPosts() {
-      db.ref("posts").on("value", snapshot => {
-        const container = document.getElementById("posts");
-        container.innerHTML = "";
-        const posts = snapshot.val();
-        if (!posts) return;
-
-        Object.entries(posts).reverse().forEach(([id, post]) => {
-          const postDiv = document.createElement("div");
-          postDiv.className = "post";
-          const isMod = moderators.includes(post.user);
-          postDiv.innerHTML = `
-            <p><strong>${post.user}${isMod ? ' ⭐️' : ''}</strong> dice:</p>
-            <p>${post.message.replace(/https:\/\/open\.spotify\.com\/\S+/g, '')}</p>
-            <iframe src="https://open.spotify.com/embed/track/${post.trackId}" width="300" height="80" frameborder="0" allowtransparency="true" allow="encrypted-media"></iframe>
-            <div class="tools">
-              <button onclick="copyLink('${post.trackId}')">🔗 Copiar enlace</button>
-              ${isMod ? `<button onclick="deletePost('${id}')">🗑️ Borrar</button>` : ""}
-              ${isMod ? `<button onclick="promoteUserPrompt()">👑 Nombrar moderador</button>` : ""}
-            </div>
-            <div class="comment-form">
-              <input type="text" placeholder="Tu nombre" id="name-${id}" />
-              <input type="text" placeholder="Comentario..." id="comment-${id}" />
-              <button onclick="submitComment('${id}')">Comentar</button>
-            </div>
-            <div id="comments-${id}"></div>
-          `;
-          container.appendChild(postDiv);
-          loadComments(id);
-        });
+    function submitComment(postId) {
+      const commentInput = document.getElementById(`comment-${postId}`);
+      const comment = commentInput.value.trim();
+      const name = currentUser || "Anónimo";
+      if (!comment) return;
+      db.ref(`posts/${postId}/comments`).push({
+        name,
+        comment,
+        time: Date.now()
       });
+      commentInput.value = "";
     }
 
     function copyLink(trackId) {
       const link = `https://open.spotify.com/track/${trackId}`;
-      navigator.clipboard.writeText(link).then(() => {
-        alert("Enlace copiado al portapapeles");
-      });
+      navigator.clipboard.writeText(link).then(() => alert("¡Enlace copiado!"));
     }
 
-    function submitComment(postId) {
-      const name = document.getElementById(`name-${postId}`).value.trim() || "Anónimo";
-      const comment = document.getElementById(`comment-${postId}`).value.trim();
-      if (!comment) return;
-
-      db.ref(`posts/${postId}/comments`).push({
-        name,
-        comment,
-        time: Date.now(),
-        replies: []
-      });
-
-      document.getElementById(`comment-${postId}`).value = "";
+    function deletePost(id) {
+      db.ref("posts/" + id).remove();
     }
 
-    function loadComments(postId) {
-      const container = document.getElementById(`comments-${postId}`);
+    function deleteComment(postId, commentId) {
+      db.ref(`posts/${postId}/comments/${commentId}`).remove();
+    }
+
+    function makeModerator(name) {
+      if (!moderators.includes(name)) {
+        moderators.push(name);
+        db.ref("moderators").set(moderators);
+      }
+    }
+
+    function renderModerationControls(postUser, postId) {
+      if (!moderators.includes(currentUser)) return "";
+      let html = `<button onclick="deletePost('${postId}')">Eliminar</button>`;
+      if (!moderators.includes(postUser)) {
+        html += `<button onclick="makeModerator('${postUser}')">Hacer Moderador</button>`;
+      }
+      return html;
+    }
+
+    function loadComments(postId, container, postOwner) {
       db.ref(`posts/${postId}/comments`).on("value", snapshot => {
         const comments = snapshot.val();
         container.innerHTML = "";
         if (!comments) return;
         Object.entries(comments).forEach(([cid, com]) => {
           const div = document.createElement("div");
-          const isMod = moderators.includes(com.name);
           div.className = "comment";
-          div.innerHTML = `
-            <strong>${com.name}${isMod ? ' ⭐️' : ''}:</strong> ${com.comment}
-            <div class="tools">
-              <button onclick="showReplyForm('${postId}', '${cid}')">💬 Responder</button>
-              ${isMod ? `<button onclick="deleteComment('${postId}', '${cid}')">🗑️</button>` : ""}
-            </div>
-            <div id="replies-${postId}-${cid}"></div>
-          `;
+          div.innerHTML = `<strong>${com.name}:</strong> ${com.comment}`;
+          if (moderators.includes(currentUser)) {
+            div.innerHTML += `<br><button onclick="deleteComment('${postId}', '${cid}')">Eliminar comentario</button>`;
+          }
           container.appendChild(div);
         });
       });
     }
 
-    function showReplyForm(postId, cid) {
-      const container = document.getElementById(`replies-${postId}-${cid}`);
-      container.innerHTML = `
-        <div class="reply">
-          <input type="text" placeholder="Tu nombre" id="rname-${cid}" />
-          <input type="text" placeholder="Tu respuesta..." id="rcomment-${cid}" />
-          <button onclick="submitReply('${postId}', '${cid}')">Responder</button>
-        </div>
-      `;
-    }
-
-    function submitReply(postId, cid) {
-      const name = document.getElementById(`rname-${cid}`).value.trim() || "Anónimo";
-      const comment = document.getElementById(`rcomment-${cid}`).value.trim();
-      if (!comment) return;
-
-      db.ref(`posts/${postId}/comments/${cid}/replies`).push({
-        name,
-        comment,
-        time: Date.now()
+    function loadPosts() {
+      db.ref("posts").on("value", snapshot => {
+        const container = document.getElementById("posts");
+        container.innerHTML = "";
+        const posts = snapshot.val();
+        if (!posts) return;
+        Object.entries(posts).reverse().forEach(([id, post]) => {
+          const userIsMod = moderators.includes(post.user);
+          const userDisplay = userIsMod ? `<span style='color:#1db954;'>${post.user}</span>` : post.user;
+          const postDiv = document.createElement("div");
+          postDiv.className = "post";
+          postDiv.innerHTML = `
+            <p><strong>${userDisplay}</strong> dice:</p>
+            <p>${post.message.replace(/https:\/\/open\.spotify\.com\/track\/[a-zA-Z0-9]+/, "[Enlace oculto]")}</p>
+            <iframe src="https://open.spotify.com/embed/track/${post.trackId}" width="300" height="80" frameborder="0" allowtransparency="true" allow="encrypted-media"></iframe>
+            <button onclick="copyLink('${post.trackId}')">🔗 Copiar Enlace</button>
+            ${renderModerationControls(post.user, id)}
+            <div class="comment-form">
+              <input type="text" placeholder="Comentario..." id="comment-${id}" />
+              <button onclick="submitComment('${id}')">Comentar</button>
+            </div>
+            <div id="comments-${id}"></div>
+          `;
+          container.appendChild(postDiv);
+          loadComments(id, document.getElementById(`comments-${id}`), post.user);
+        });
       });
     }
 
-    function deletePost(id) {
-      db.ref(`posts/${id}`).remove();
+    function loadModerators() {
+      db.ref("moderators").on("value", snapshot => {
+        moderators = snapshot.val() || [];
+        if (!Array.isArray(moderators)) moderators = [];
+        if (!moderators.includes("Ara")) {
+          moderators.push("Ara");
+          db.ref("moderators").set(moderators);
+        }
+      });
     }
 
-    function deleteComment(postId, cid) {
-      db.ref(`posts/${postId}/comments/${cid}`).remove();
-    }
-
-    function promoteUserPrompt() {
-      const newMod = prompt("Nombre del usuario a convertir en moderador:");
-      if (!newMod) return;
-      if (!moderators.includes(newMod)) {
-        moderators.push(newMod);
-        saveModerator(newMod);
-        alert(`${newMod} ahora es moderador.`);
-      } else {
-        alert(`${newMod} ya es moderador.`);
+    document.addEventListener("DOMContentLoaded", () => {
+      if (localStorage.getItem("username")) {
+        currentUser = localStorage.getItem("username");
+        const usernameInput = document.getElementById("username");
+        usernameInput.value = currentUser;
+        usernameInput.style.display = "none";
       }
-    }
-
-    loadModerators();
+      loadModerators();
+      loadPosts();
+    });
   </script></body>
-</html>
+  </html>
