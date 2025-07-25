@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <title>Foro de Música 🎶</title>
+  <style>
+    body {
+      background: #121212;
+      color: white;
+      font-family: sans-serif;
+      max-width: 600px;
+      margin: auto;
+      padding: 20px;
+    }
+    input, button {
+      padding: 10px;
+      margin: 5px 0;
+      border-radius: 5px;
+      border: none;
+      font-size: 16px;
+      width: 100%;
+      box-sizing: border-box;
+    }
+    button {
+      background: #1DB954;
+      color: white;
+      font-weight: bold;
+      cursor: pointer;
+    }
+    ul { list-style: none; padding: 0; }
+    li {
+      background: #1e1e1e;
+      border-radius: 10px;
+      padding: 10px;
+      margin-bottom: 20px;
+    }
+    iframe {
+      border-radius: 12px;
+      width: 100%;
+    }
+  </style>
+
+  <!-- Firebase (Compat mode) -->
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+  <script src="./firebase-config.js"></script>
+</head>
+<body>
+
+  <h1>🎧 Foro de Canciones Spotify</h1>
+
+  <div id="nameSection">
+    <p>Elige un nombre temporal:</p>
+    <input id="username" placeholder="Tu nombre..." />
+    <button onclick="setName()">Entrar</button>
+  </div>
+
+  <div id="main" style="display: none;">
+    <p>Bienvenido, <strong><span id="userDisplay"></span></strong></p>
+    <input id="spotifyLink" placeholder="Pega aquí el enlace de Spotify (canción)" />
+    <button onclick="share()">Compartir canción</button>
+
+    <h3>🎵 Canciones compartidas:</h3>
+    <ul id="posts"></ul>
+  </div>
+
+  <script>
+    const db = firebase.database();
+    let username = localStorage.getItem("username");
+
+    if (username) {
+      showMain();
+      loadPosts();
+    }
+
+    function setName() {
+      username = document.getElementById("username").value.trim();
+      if (!username) {
+        alert("Por favor, elige un nombre.");
+        return;
+      }
+      localStorage.setItem("username", username);
+      showMain();
+      loadPosts();
+    }
+
+    function showMain() {
+      document.getElementById("userDisplay").innerText = username;
+      document.getElementById("nameSection").style.display = "none";
+      document.getElementById("main").style.display = "block";
+    }
+
+    function extractTrackId(url) {
+      const match = url.match(/track\/([a-zA-Z0-9]+)/);
+      return match ? match[1] : null;
+    }
+
+    function share() {
+      const link = document.getElementById("spotifyLink").value.trim();
+      const trackId = extractTrackId(link);
+      if (!trackId) {
+        alert("Enlace de canción no válido.");
+        return;
+      }
+
+      const post = {
+        user: username,
+        trackId,
+        timestamp: Date.now()
+      };
+
+      db.ref("posts").push(post).then(() => {
+        document.getElementById("spotifyLink").value = "";
+      });
+    }
+
+    function loadPosts() {
+      const ul = document.getElementById("posts");
+      db.ref("posts").orderByChild("timestamp").limitToLast(100).on("value", snapshot => {
+        ul.innerHTML = "";
+        const posts = [];
+        snapshot.forEach(child => posts.push(child.val()));
+        posts.reverse();
+        posts.forEach(post => {
+          const li = document.createElement("li");
+          li.innerHTML = `
+            <p><strong>${post.user}:</strong></p>
+            <iframe src="https://open.spotify.com/embed/track/${post.trackId}" height="80" frameborder="0"
+              allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" loading="lazy"></iframe>
+          `;
+          ul.appendChild(li);
+        });
+      });
+    }
+  </script>
+</body>
+</html>
