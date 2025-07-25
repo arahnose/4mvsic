@@ -41,15 +41,42 @@
       font-weight: bold;
       cursor: pointer;
     }
+    .tools {
+      margin-top: 0.5rem;
+    }
+    .tools button {
+      margin-right: 0.5rem;
+      background: #333;
+    }
+    .reply {
+      margin-left: 1rem;
+      border-left: 2px solid #444;
+      padding-left: 0.5rem;
+    }
   </style>
 </head>
 <body>
   <h1>🎧 Foro de Música</h1>  <div class="post-form">
-    <input type="text" id="username" placeholder="Tu nombre temporal" />
+    <input type="text" id="username" placeholder="Tu nombre permanente" />
     <textarea id="message" placeholder="Escribe tu mensaje y pega el enlace de Spotify..."></textarea>
     <button onclick="submitPost()">Publicar</button>
   </div>  <div id="posts"></div>  <!-- Firebase -->  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>  <script src="./firebase-config.js"></script>  <script>
     const db = firebase.database();
+
+    let moderators = [];
+
+    function loadModerators() {
+      db.ref("moderators").once("value", snapshot => {
+        const mods = snapshot.val();
+        if (mods) moderators = Object.keys(mods);
+        else moderators = ["Ara"];
+        renderPosts();
+      });
+    }
+
+    function saveModerator(name) {
+      db.ref("moderators/" + name).set(true);
+    }
 
     function extractTrackId(text) {
       const match = text.match(/(?:track\/)\s*([a-zA-Z0-9]{22})/);
@@ -72,7 +99,7 @@
       document.getElementById("message").value = "";
     }
 
-    function loadPosts() {
+    function renderPosts() {
       db.ref("posts").on("value", snapshot => {
         const container = document.getElementById("posts");
         container.innerHTML = "";
@@ -82,10 +109,16 @@
         Object.entries(posts).reverse().forEach(([id, post]) => {
           const postDiv = document.createElement("div");
           postDiv.className = "post";
+          const isMod = moderators.includes(post.user);
           postDiv.innerHTML = `
-            <p><strong>${post.user}</strong> dice:</p>
-            <p>${post.message.replace(/(https:\/\/open\.spotify\.com\/\S+)/g, '<a href="$1" target="_blank">$1</a>')}</p>
+            <p><strong>${post.user}${isMod ? ' ⭐️' : ''}</strong> dice:</p>
+            <p>${post.message.replace(/https:\/\/open\.spotify\.com\/\S+/g, '')}</p>
             <iframe src="https://open.spotify.com/embed/track/${post.trackId}" width="300" height="80" frameborder="0" allowtransparency="true" allow="encrypted-media"></iframe>
+            <div class="tools">
+              <button onclick="copyLink('${post.trackId}')">🔗 Copiar enlace</button>
+              ${isMod ? `<button onclick="deletePost('${id}')">🗑️ Borrar</button>` : ""}
+              ${isMod ? `<button onclick="promoteUserPrompt()">👑 Nombrar moderador</button>` : ""}
+            </div>
             <div class="comment-form">
               <input type="text" placeholder="Tu nombre" id="name-${id}" />
               <input type="text" placeholder="Comentario..." id="comment-${id}" />
@@ -99,6 +132,13 @@
       });
     }
 
+    function copyLink(trackId) {
+      const link = `https://open.spotify.com/track/${trackId}`;
+      navigator.clipboard.writeText(link).then(() => {
+        alert("Enlace copiado al portapapeles");
+      });
+    }
+
     function submitComment(postId) {
       const name = document.getElementById(`name-${postId}`).value.trim() || "Anónimo";
       const comment = document.getElementById(`comment-${postId}`).value.trim();
@@ -107,7 +147,8 @@
       db.ref(`posts/${postId}/comments`).push({
         name,
         comment,
-        time: Date.now()
+        time: Date.now(),
+        replies: []
       });
 
       document.getElementById(`comment-${postId}`).value = "";
@@ -119,15 +160,66 @@
         const comments = snapshot.val();
         container.innerHTML = "";
         if (!comments) return;
-        Object.values(comments).forEach(com => {
+        Object.entries(comments).forEach(([cid, com]) => {
           const div = document.createElement("div");
+          const isMod = moderators.includes(com.name);
           div.className = "comment";
-          div.innerHTML = `<strong>${com.name}:</strong> ${com.comment}`;
+          div.innerHTML = `
+            <strong>${com.name}${isMod ? ' ⭐️' : ''}:</strong> ${com.comment}
+            <div class="tools">
+              <button onclick="showReplyForm('${postId}', '${cid}')">💬 Responder</button>
+              ${isMod ? `<button onclick="deleteComment('${postId}', '${cid}')">🗑️</button>` : ""}
+            </div>
+            <div id="replies-${postId}-${cid}"></div>
+          `;
           container.appendChild(div);
         });
       });
     }
 
-    loadPosts();
+    function showReplyForm(postId, cid) {
+      const container = document.getElementById(`replies-${postId}-${cid}`);
+      container.innerHTML = `
+        <div class="reply">
+          <input type="text" placeholder="Tu nombre" id="rname-${cid}" />
+          <input type="text" placeholder="Tu respuesta..." id="rcomment-${cid}" />
+          <button onclick="submitReply('${postId}', '${cid}')">Responder</button>
+        </div>
+      `;
+    }
+
+    function submitReply(postId, cid) {
+      const name = document.getElementById(`rname-${cid}`).value.trim() || "Anónimo";
+      const comment = document.getElementById(`rcomment-${cid}`).value.trim();
+      if (!comment) return;
+
+      db.ref(`posts/${postId}/comments/${cid}/replies`).push({
+        name,
+        comment,
+        time: Date.now()
+      });
+    }
+
+    function deletePost(id) {
+      db.ref(`posts/${id}`).remove();
+    }
+
+    function deleteComment(postId, cid) {
+      db.ref(`posts/${postId}/comments/${cid}`).remove();
+    }
+
+    function promoteUserPrompt() {
+      const newMod = prompt("Nombre del usuario a convertir en moderador:");
+      if (!newMod) return;
+      if (!moderators.includes(newMod)) {
+        moderators.push(newMod);
+        saveModerator(newMod);
+        alert(`${newMod} ahora es moderador.`);
+      } else {
+        alert(`${newMod} ya es moderador.`);
+      }
+    }
+
+    loadModerators();
   </script></body>
 </html>
