@@ -1,137 +1,133 @@
-<!DOCTYPE html>
-<html lang="es">
+<!DOCTYPE html><html lang="es">
 <head>
   <meta charset="UTF-8" />
-  <title>Foro de Música 🎶</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Foro Musical 🎶</title>
   <style>
     body {
-      background: #121212;
-      color: white;
       font-family: sans-serif;
-      max-width: 600px;
-      margin: auto;
-      padding: 20px;
+      background: #121212;
+      color: #fff;
+      margin: 0;
+      padding: 1rem;
     }
-    input, button {
-      padding: 10px;
-      margin: 5px 0;
-      border-radius: 5px;
-      border: none;
-      font-size: 16px;
+    .post, .comment {
+      border: 1px solid #333;
+      border-radius: 8px;
+      padding: 1rem;
+      margin-bottom: 1rem;
+      background: #1e1e1e;
+    }
+    .post img {
+      max-width: 100px;
+      border-radius: 4px;
+    }
+    .comment-form, .post-form {
+      margin-bottom: 2rem;
+    }
+    input, textarea {
       width: 100%;
-      box-sizing: border-box;
+      padding: 0.5rem;
+      margin: 0.5rem 0;
+      border-radius: 4px;
+      border: none;
     }
     button {
-      background: #1DB954;
+      padding: 0.5rem 1rem;
+      background: #1db954;
+      border: none;
+      border-radius: 4px;
       color: white;
       font-weight: bold;
       cursor: pointer;
     }
-    ul { list-style: none; padding: 0; }
-    li {
-      background: #1e1e1e;
-      border-radius: 10px;
-      padding: 10px;
-      margin-bottom: 20px;
-    }
-    iframe {
-      border-radius: 12px;
-      width: 100%;
-    }
   </style>
-
-  <!-- Firebase (Compat mode) -->
-  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
-  <script src="./firebase-config.js"></script>
 </head>
 <body>
-
-  <h1>🎧 Foro de Canciones Spotify</h1>
-
-  <div id="nameSection">
-    <p>Elige un nombre temporal:</p>
-    <input id="username" placeholder="Tu nombre..." />
-    <button onclick="setName()">Entrar</button>
-  </div>
-
-  <div id="main" style="display: none;">
-    <p>Bienvenido, <strong><span id="userDisplay"></span></strong></p>
-    <input id="spotifyLink" placeholder="Pega aquí el enlace de Spotify (canción)" />
-    <button onclick="share()">Compartir canción</button>
-
-    <h3>🎵 Canciones compartidas:</h3>
-    <ul id="posts"></ul>
-  </div>
-
-  <script>
+  <h1>🎧 Foro de Música</h1>  <div class="post-form">
+    <input type="text" id="username" placeholder="Tu nombre temporal" />
+    <textarea id="message" placeholder="Escribe tu mensaje y pega el enlace de Spotify..."></textarea>
+    <button onclick="submitPost()">Publicar</button>
+  </div>  <div id="posts"></div>  <!-- Firebase -->  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>  <script src="./firebase-config.js"></script>  <script>
     const db = firebase.database();
-    let username = localStorage.getItem("username");
 
-    if (username) {
-      showMain();
-      loadPosts();
-    }
-
-    function setName() {
-      username = document.getElementById("username").value.trim();
-      if (!username) {
-        alert("Por favor, elige un nombre.");
-        return;
-      }
-      localStorage.setItem("username", username);
-      showMain();
-      loadPosts();
-    }
-
-    function showMain() {
-      document.getElementById("userDisplay").innerText = username;
-      document.getElementById("nameSection").style.display = "none";
-      document.getElementById("main").style.display = "block";
-    }
-
-    function extractTrackId(url) {
-      const match = url.match(/track\/([a-zA-Z0-9]+)/);
+    function extractTrackId(text) {
+      const match = text.match(/(?:track\/)\s*([a-zA-Z0-9]{22})/);
       return match ? match[1] : null;
     }
 
-    function share() {
-      const link = document.getElementById("spotifyLink").value.trim();
-      const trackId = extractTrackId(link);
-      if (!trackId) {
-        alert("Enlace de canción no válido.");
-        return;
-      }
+    function submitPost() {
+      const username = document.getElementById("username").value.trim() || "Anónimo";
+      const message = document.getElementById("message").value.trim();
+      const trackId = extractTrackId(message);
+      if (!message || !trackId) return alert("Escribe un mensaje válido con enlace de canción.");
 
-      const post = {
+      db.ref("posts").push({
         user: username,
+        message,
         trackId,
-        timestamp: Date.now()
-      };
-
-      db.ref("posts").push(post).then(() => {
-        document.getElementById("spotifyLink").value = "";
+        timestamp: Date.now(),
+        comments: []
       });
+      document.getElementById("message").value = "";
     }
 
     function loadPosts() {
-      const ul = document.getElementById("posts");
-      db.ref("posts").orderByChild("timestamp").limitToLast(100).on("value", snapshot => {
-        ul.innerHTML = "";
-        const posts = [];
-        snapshot.forEach(child => posts.push(child.val()));
-        posts.reverse();
-        posts.forEach(post => {
-          const li = document.createElement("li");
-          li.innerHTML = `
-            <p><strong>${post.user}:</strong></p>
-            <iframe src="https://open.spotify.com/embed/track/${post.trackId}" height="80" frameborder="0"
-              allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" loading="lazy"></iframe>
+      db.ref("posts").on("value", snapshot => {
+        const container = document.getElementById("posts");
+        container.innerHTML = "";
+        const posts = snapshot.val();
+        if (!posts) return;
+
+        Object.entries(posts).reverse().forEach(([id, post]) => {
+          const postDiv = document.createElement("div");
+          postDiv.className = "post";
+          postDiv.innerHTML = `
+            <p><strong>${post.user}</strong> dice:</p>
+            <p>${post.message.replace(/(https:\/\/open\.spotify\.com\/\S+)/g, '<a href="$1" target="_blank">$1</a>')}</p>
+            <iframe src="https://open.spotify.com/embed/track/${post.trackId}" width="300" height="80" frameborder="0" allowtransparency="true" allow="encrypted-media"></iframe>
+            <div class="comment-form">
+              <input type="text" placeholder="Tu nombre" id="name-${id}" />
+              <input type="text" placeholder="Comentario..." id="comment-${id}" />
+              <button onclick="submitComment('${id}')">Comentar</button>
+            </div>
+            <div id="comments-${id}"></div>
           `;
-          ul.appendChild(li);
+          container.appendChild(postDiv);
+          loadComments(id);
         });
       });
     }
-  </script>
-</body>
+
+    function submitComment(postId) {
+      const name = document.getElementById(`name-${postId}`).value.trim() || "Anónimo";
+      const comment = document.getElementById(`comment-${postId}`).value.trim();
+      if (!comment) return;
+
+      db.ref(`posts/${postId}/comments`).push({
+        name,
+        comment,
+        time: Date.now()
+      });
+
+      document.getElementById(`comment-${postId}`).value = "";
+    }
+
+    function loadComments(postId) {
+      const container = document.getElementById(`comments-${postId}`);
+      db.ref(`posts/${postId}/comments`).on("value", snapshot => {
+        const comments = snapshot.val();
+        container.innerHTML = "";
+        if (!comments) return;
+        Object.values(comments).forEach(com => {
+          const div = document.createElement("div");
+          div.className = "comment";
+          div.innerHTML = `<strong>${com.name}:</strong> ${com.comment}`;
+          container.appendChild(div);
+        });
+      });
+    }
+
+    loadPosts();
+  </script></body>
 </html>
